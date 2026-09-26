@@ -2,7 +2,7 @@
   "output_dir": "data/processed",
   "train_tokens_file": "data/processed/train_tokens.json",
   "val_tokens_file": "data/processed/val_tokens.json",
-  "train_token_count": 2413969,
-  "val_token_count": 127051,
-  "unique_documents_seen": 2
+  "train_token_count": 14367200,
+  "val_token_count": 756168,
+  "unique_documents_seen": 35554
 }
