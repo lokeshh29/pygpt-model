@@ -1,4 +1,4 @@
-# 🧠 PyGPT Model Specification
+# 🧠 PyGPT Model & Transformer Specification
 
 ## 01. PyGPT Model Definition
 
@@ -16,90 +16,63 @@ PyGPT is defined with three model parameter tiers tailored for different executi
 | **PyGPT-Base** *(Default)* | **1.3B** | 1.3B | 2,048 | 24 | 16 | 4 | Single GPU / Dev Server |
 | **PyGPT-Pro** | **7B** | 7B | 4,096 | 32 | 32 | 8 | Enterprise GPU Cluster |
 
-### Default Model (PyGPT-Base 1.3B):
-- **Total Parameter Count**: ~1.3 Billion parameters
-- **Precision Support**: FP16, BF16, INT8, and INT4 (via AWQ / GPTQ quantization)
-
 ---
 
-## 🏗️ 2. Transformer Architecture
+## 🏗️ 2. PyTorch Transformer Module Implementation
 
-PyGPT incorporates state-of-the-art modern decoder-only transformer design choices to optimize token throughput and memory efficiency during Python code inference:
+The complete architecture is implemented in PyTorch under [`app/model/transformer.py`](app/model/transformer.py):
 
-### Architecture Stack Highlights:
-1. **Decoder-Only Transformer Structure**:
-   - Autoregressive causal language modeling.
-   - Pre-Layer Normalization placement for training stability.
+### 1. Token Embeddings & Output Projection
+- **Embedding Layer** (`nn.Embedding`): Maps input token IDs $\in [0, V-1]$ into $d_{\text{model}}$-dimensional vectors.
+- **Language Model Head** (`nn.Linear`): Unbiased linear projection layer mapping output states from $d_{\text{model}}$ back to vocabulary logits $V$.
 
-2. **Attention Mechanism — Grouped-Query Attention (GQA)**:
-   - **16 Query Heads** and **4 Key/Value Heads** (4:1 GQA ratio).
-   - Drastically reduces Key-Value (KV) cache memory footprint during long context generation, enabling higher batch sizes and faster inference.
-   - Fully compatible with **FlashAttention-2** and **SDPA (Scaled Dot-Product Attention)**.
+### 2. Positional Encoding — Rotary Position Embedding (RoPE)
+- **Module**: `RotaryEmbedding`
+- Computes relative positional frequency matrices $\theta_i = \text{rope\_theta}^{-2i/d}$.
+- Applies complex rotation $R_{\Theta, m}^d$ to Query ($Q$) and Key ($K$) tensors per head:
+  $$\text{RoPE}(q, k, \text{cos}, \text{sin}) = (q \odot \text{cos}) + (\text{rotate\_half}(q) \odot \text{sin})$$
 
-3. **Positional Encoding — Rotary Position Embedding (RoPE)**:
-   - Eliminates absolute positional embeddings in favor of relative rotational encodings.
-   - Frequency scaling factor ($\theta = 100,000$) configured for context extension without degradation.
+### 3. Attention — Grouped-Query Attention (GQA)
+- **Module**: `GroupedQueryAttention`
+- **Ratio**: 16 Query heads to 4 Key/Value heads ($4:1$ ratio).
+- **KV Replication**: `repeat_kv` duplicates KV heads across query groups.
+- **FlashAttention-2**: Automatically dispatches to `torch.nn.functional.scaled_dot_product_attention` (SDPA) for hardware-accelerated memory bandwidth utilization.
 
-4. **Feed-Forward Network (FFN) — SwiGLU Activation**:
-   - Replaces standard GELU/ReLU with **SwiGLU (Swish Gated Linear Unit)**.
-   - Intermediate dimension size ($d_{\text{ff}}$): $8,192$ (4x hidden size multiplier adjusted for SwiGLU gating).
+### 4. Feed-Forward Network — SwiGLU FFN
+- **Module**: `SwiGLUFeedForward`
+- **Equation**:
+  $$\text{SwiGLU}(x) = \Big(\text{SiLU}(x W_{\text{gate}}) \odot (x W_{\text{up}})\Big) W_{\text{down}}$$
+- **Dimensions**: $W_{\text{gate}}, W_{\text{up}} \in \mathbb{R}^{d_{\text{model}} \times d_{\text{ff}}}$, $W_{\text{down}} \in \mathbb{R}^{d_{\text{ff}} \times d_{\text{model}}}$.
 
-5. **Normalization — RMSNorm**:
-   - Uses **Root Mean Square Normalization (RMSNorm)** over standard LayerNorm for $\sim 10-50\%$ faster normalization kernel execution.
-   - $\epsilon = 1\times 10^{-6}$.
-
-6. **Bias-Free Layers**:
-   - All linear projection layers (Attention Query/Key/Value/Output and FFN Gate/Up/Down projections) omit additive bias parameters to improve numerical stability and compute efficiency.
-
-7. **Tokenizer**:
-   - Custom **32,000 token vocabulary** Byte-Pair Encoding (BPE) tokenizer trained on Python repositories (preserving whitespace indentations, Python keywords, AST nodes, and common variable patterns).
+### 5. Normalization — RMSNorm
+- **Module**: `RMSNorm`
+- **Equation**:
+  $$\text{RMSNorm}(x) = \frac{x}{\sqrt{\frac{1}{d} \sum_{i=1}^d x_i^2 + \epsilon}} \odot \gamma$$
+- Applied pre-normalization before Attention and FFN blocks.
 
 ---
 
 ## 📏 3. Context Length
 
-PyGPT is engineered to process large Python codebases, multi-file dependencies, and long execution stack traces:
-
 - **Native Context Window**: **8,192 tokens** (8K context).
 - **Extended Context Window**: Up to **32,768 tokens** (32K context) via **YaRN (Yet Another RoPE Extension)** and RoPE base frequency scaling ($\theta = 100,000$).
 
-### Context Allocation Breakdown:
-- **System Prompt & Rules**: Up to 1,024 tokens.
-- **Repository Context & Imports**: Up to 16,384 tokens.
-- **Active File / Query Input**: Up to 8,192 tokens.
-- **Generated Code Response**: Up to 7,168 tokens.
-
 ---
 
-## 🎯 4. Target Capabilities
+## 💻 PyTorch Usage Example
 
-PyGPT is specialized for Python-centric development workflows:
+```python
+import torch
+from app.model.transformer import build_pygpt_model
+from app.schemas.model import default_model_config
 
-1. **Python Code Generation & Completion**:
-   - Zero-shot and few-shot generation of functions, classes, modules, and boilerplate.
-   - Real-time line and block auto-completion.
+# Build PyGPT PyTorch Transformer Model
+model = build_pygpt_model(default_model_config)
 
-2. **Automated Debugging & Stack Trace Diagnostics**:
-   - Parsing Python exceptions (`SyntaxError`, `TypeError`, `KeyError`, `AttributeError`, `RecursionError`).
-   - Root-cause analysis from raw execution logs and traceback output.
+# Input token IDs (batch_size=1, seq_len=32)
+input_ids = torch.randint(0, 32000, (1, 32))
 
-3. **Strict Type Annotations & Static Analysis**:
-   - Adding precise `typing` annotations (`TypeVar`, `Union`, `Optional`, `Callable`, `ParamSpec`) matching `mypy` and `pyright` strict compliance.
-
-4. **Docstring & Specification Authoring**:
-   - Generating standard Google, NumPy, or Sphinx formatted docstrings.
-
-5. **Unit Test Generation**:
-   - Generating comprehensive `pytest` test suites, fixtures, parametrizations, and mock objects.
-
-6. **Deep Ecosystem Mastery**:
-   - Built-in proficiency with top Python packages and frameworks:
-     - **Web**: FastAPI, Uvicorn, Django, Flask, Pydantic.
-     - **AI & Math**: PyTorch, NumPy, Pandas, SciPy, Scikit-learn.
-     - **Tooling & Package Managers**: `uv`, `poetry`, `pipenv`, `ruff`, `mypy`.
-     - **Database & Async**: `asyncio`, `SQLAlchemy`, `Tortoise-ORM`, `aiohttp`.
-
-7. **Refactoring & Code Optimization**:
-   - PEP 8 formatting alignment.
-   - Vectorization of loops using NumPy/Pandas.
-   - Converting sync blocking code into async `asyncio` routines.
+# Forward pass -> Logits shape (1, 32, 32000)
+logits = model(input_ids)
+print("Logits shape:", logits.shape)
+```
