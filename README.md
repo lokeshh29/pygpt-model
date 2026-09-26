@@ -25,3 +25,6 @@ Custom model that is specific for python coding, debugging etc.
 - `GET /`: Welcome message
 - `GET /health`: Health check endpoint returning `{"status": "healthy"}`
 - `GET /docs`: Interactive Swagger API documentation
+
+For detailed cURL commands to test each endpoint, refer to [curl_commands.md](curl_commands.md).
+
