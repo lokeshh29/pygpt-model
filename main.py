@@ -1,17 +1,18 @@
 from fastapi import FastAPI
 import uvicorn
 
-from app.routers import model_router, tokenizer_router
+from app.routers import model_router, tokenizer_router, generation_router
 
 app = FastAPI(
     title="PyGPT Model API",
-    description="A modular FastAPI server serving the PyGPT Model specifications, tokenizer, and AI capabilities.",
+    description="A modular FastAPI server serving the PyGPT Model specifications, tokenizer, pre-training, and code generation.",
     version="0.1.0",
 )
 
 # Include modular API routers
 app.include_router(model_router)
 app.include_router(tokenizer_router)
+app.include_router(generation_router)
 
 
 @app.get("/", tags=["Root"])

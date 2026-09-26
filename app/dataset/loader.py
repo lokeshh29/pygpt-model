@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -8,12 +8,12 @@ from torch.utils.data import Dataset, DataLoader
 
 class PyGPTTokenDataset(Dataset):
     """
-    PyTorch Dataset for Next-Token Prediction.
+    PyTorch Dataset for Next-Token Prediction with memory-efficient token slicing.
     Given a sequence of token IDs, generates inputs x = tokens[i : i + seq_len]
     and targets y = tokens[i + 1 : i + seq_len + 1].
     """
 
-    def __init__(self, token_file: str, seq_len: int = 512):
+    def __init__(self, token_file: str, seq_len: int = 512, max_samples: Optional[int] = None):
         self.token_file = Path(token_file)
         self.seq_len = seq_len
 
@@ -24,12 +24,18 @@ class PyGPTTokenDataset(Dataset):
         with open(self.token_file, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        self.tokens = torch.tensor(data["tokens"], dtype=torch.long)
-        self.total_tokens = len(self.tokens)
+        raw_tokens = data["tokens"]
+        self.total_tokens = len(raw_tokens)
+        
+        # If max_samples specified, cap for memory safety; otherwise use 100% of tokens
+        if max_samples is not None:
+            max_tokens_to_keep = (max_samples * self.seq_len) + 1
+            if self.total_tokens > max_tokens_to_keep:
+                raw_tokens = raw_tokens[:max_tokens_to_keep]
 
-        # Calculate number of valid full context sequences
-        self.num_samples = max(0, (self.total_tokens - 1) // self.seq_len)
-        print(f"✅ Loaded {self.total_tokens:,} tokens -> {self.num_samples:,} samples (seq_len={self.seq_len})")
+        self.tokens = torch.tensor(raw_tokens, dtype=torch.long)
+        self.num_samples = max(0, (len(self.tokens) - 1) // self.seq_len)
+        print(f"✅ Loaded {len(self.tokens):,} tokens -> {self.num_samples:,} samples (seq_len={self.seq_len})")
 
     def __len__(self) -> int:
         return self.num_samples
@@ -48,10 +54,11 @@ def create_dataloaders(
     seq_len: int = 512,
     batch_size: int = 4,
     num_workers: int = 0,
+    max_samples: Optional[int] = None,
 ) -> Tuple[DataLoader, DataLoader]:
     """Creates PyTorch DataLoaders for training and validation datasets."""
-    train_dataset = PyGPTTokenDataset(train_file, seq_len=seq_len)
-    val_dataset = PyGPTTokenDataset(val_file, seq_len=seq_len)
+    train_dataset = PyGPTTokenDataset(train_file, seq_len=seq_len, max_samples=max_samples)
+    val_dataset = PyGPTTokenDataset(val_file, seq_len=seq_len, max_samples=max_samples // 10 if max_samples else None)
 
     train_loader = DataLoader(
         train_dataset,

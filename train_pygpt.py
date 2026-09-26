@@ -3,7 +3,7 @@
 CLI entry script to pretrain PyGPT model using Next-Token Prediction & Validation Loss Monitoring.
 
 Usage:
-    python3 train_pygpt.py [--epochs 3] [--batch_size 4] [--seq_len 512] [--lr 1e-4] [--device cuda/cpu]
+    python3 train_pygpt.py [--full_dataset] [--model_size nano] [--epochs 3] [--batch_size 2] [--seq_len 256] [--lr 1e-4]
 """
 
 import argparse
@@ -31,6 +31,13 @@ def main():
         help="Path to tokenized validation dataset shard (default: data/processed/val_tokens.json)",
     )
     parser.add_argument(
+        "--model_size",
+        type=str,
+        default="nano",
+        choices=["nano", "base", "pro"],
+        help="PyGPT model variant ('nano'=350M for local CPU/RAM, 'base'=1.3B, 'pro'=7B)",
+    )
+    parser.add_argument(
         "--epochs",
         type=int,
         default=3,
@@ -39,14 +46,20 @@ def main():
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=4,
-        help="Batch size per step (default: 4)",
+        default=2,
+        help="Batch size per step (default: 2)",
     )
     parser.add_argument(
         "--seq_len",
         type=int,
-        default=512,
-        help="Sequence context length per sample (default: 512)",
+        default=256,
+        help="Sequence context length per sample (default: 256)",
+    )
+    parser.add_argument(
+        "--max_samples",
+        type=int,
+        default=None,
+        help="Limit max training sequence samples (default: None for 100%% of all tokens)",
     )
     parser.add_argument(
         "--lr",
@@ -59,6 +72,11 @@ def main():
         type=int,
         default=50,
         help="Number of steps between validation loss evaluations (default: 50)",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume pre-training from latest checkpoint (checkpoints/latest_model.pt)",
     )
     parser.add_argument(
         "--device",
@@ -78,16 +96,31 @@ def main():
         sys.exit(1)
 
     print("🧠 PyGPT Pre-training Initialization")
-    print(f"   Train File: {train_path.resolve()}")
-    print(f"   Val File:   {val_path.resolve()}")
+    print(f"   Model Variant: {args.model_size.upper()}")
+    print(f"   Dataset Usage: {'FULL (100% of all tokens)' if args.max_samples is None else f'Capped at {args.max_samples:,} samples'}")
+    print(f"   Resume Mode:   {'Enabled' if args.resume else 'Disabled'}")
+    print(f"   Train File:    {train_path.resolve()}")
+    print(f"   Val File:      {val_path.resolve()}")
     print(f"   Epochs: {args.epochs} | Batch Size: {args.batch_size} | Seq Len: {args.seq_len} | LR: {args.lr}")
 
     # Build PyGPT Configuration for Pretraining
-    config = PyGPTModelConfig(
-        name="PyGPT-1.3B-Pretrain",
-        size=ModelSize.BASE,
-    )
-    # Configure model sequence length
+    if args.model_size == "nano":
+        config = PyGPTModelConfig(
+            name="PyGPT-350M-Pretrain",
+            size=ModelSize.NANO,
+            total_parameters="350 Million",
+        )
+        config.architecture.hidden_size = 512
+        config.architecture.num_hidden_layers = 6
+        config.architecture.num_attention_heads = 8
+        config.architecture.num_key_value_heads = 2
+        config.architecture.intermediate_size = 2048
+    else:
+        config = PyGPTModelConfig(
+            name="PyGPT-1.3B-Pretrain",
+            size=ModelSize.BASE,
+        )
+
     config.context.native_context_length = args.seq_len
 
     trainer = PyGPTTrainer(
@@ -104,9 +137,10 @@ def main():
         batch_size=args.batch_size,
         seq_len=args.seq_len,
         eval_interval=args.eval_interval,
+        resume=args.resume,
     )
 
-    print("\n✅ Training Complete!")
+    print("\n✅ Pre-training Complete!")
     print(f"   Best Validation Loss: {results['best_val_loss']}")
     print(f"   Checkpoint Location:  {results['checkpoint_dir']}/best_model.pt")
 

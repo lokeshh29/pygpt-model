@@ -5,7 +5,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from app.schemas.model import PyGPTModelConfig, default_model_config
+from app.model.config import default_model_config
+from app.schemas.model import PyGPTModelConfig
 
 
 class RMSNorm(nn.Module):

@@ -12,8 +12,9 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
 from app.dataset.loader import create_dataloaders
+from app.model.config import default_model_config
 from app.model.transformer import PyGPTTransformer, build_pygpt_model
-from app.schemas.model import PyGPTModelConfig, default_model_config
+from app.schemas.model import PyGPTModelConfig
 
 
 class PyGPTTrainer:
@@ -22,7 +23,7 @@ class PyGPTTrainer:
     - Autoregressive Cross-Entropy Loss computation
     - AdamW optimizer with weight decay and Cosine Annealing scheduler
     - Validation loss monitoring & perplexity (PPL) calculation
-    - Model checkpointing for best validation loss
+    - Automatic Checkpoint Saving & Resume Capabilities
     """
 
     def __init__(
@@ -61,15 +62,13 @@ class PyGPTTrainer:
             betas=(0.9, 0.95),
         )
 
+        self.start_epoch = 1
+        self.start_step = 0
         self.best_val_loss = float("inf")
         self.history: List[Dict[str, float]] = []
 
     def compute_loss(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        """
-        Computes Next-Token Prediction Cross-Entropy Loss.
-        Logits shape: (batch_size, seq_len, vocab_size)
-        Targets shape: (batch_size, seq_len)
-        """
+        """Computes Next-Token Prediction Cross-Entropy Loss."""
         vocab_size = logits.size(-1)
         logits_flat = logits.view(-1, vocab_size)
         targets_flat = targets.view(-1)
@@ -90,7 +89,7 @@ class PyGPTTrainer:
                 val_steps += 1
 
         avg_val_loss = total_val_loss / max(1, val_steps)
-        perplexity = math.exp(min(avg_val_loss, 20))  # Cap to prevent math overflow
+        perplexity = math.exp(min(avg_val_loss, 20))
         return avg_val_loss, perplexity
 
     def save_checkpoint(
@@ -100,7 +99,7 @@ class PyGPTTrainer:
         val_loss: float,
         is_best: bool = False,
     ) -> str:
-        """Saves model state_dict, optimizer, and training metrics."""
+        """Saves model state_dict, optimizer state, and progress metrics."""
         checkpoint_data = {
             "epoch": epoch,
             "step": step,
@@ -108,6 +107,7 @@ class PyGPTTrainer:
             "optimizer_state_dict": self.optimizer.state_dict(),
             "config": self.config.model_dump(),
             "val_loss": val_loss,
+            "best_val_loss": self.best_val_loss,
         }
 
         latest_path = self.checkpoint_dir / "latest_model.pt"
@@ -116,10 +116,32 @@ class PyGPTTrainer:
         if is_best:
             best_path = self.checkpoint_dir / "best_model.pt"
             torch.save(checkpoint_data, best_path)
-            print(f"🌟 Best model checkpoint saved to: {best_path} (Val Loss: {val_loss:.4f})")
+            print(f"🌟 Best model checkpoint saved: {best_path.name} (Val Loss: {val_loss:.4f})")
             return str(best_path)
 
         return str(latest_path)
+
+    def load_checkpoint(self, checkpoint_path: Optional[str] = None) -> bool:
+        """Loads model weights, optimizer state, and step history to resume training."""
+        if checkpoint_path is None:
+            checkpoint_path = str(self.checkpoint_dir / "latest_model.pt")
+
+        ckpt_file = Path(checkpoint_path)
+        if not ckpt_file.exists():
+            print(f"⚠️ No checkpoint found at {checkpoint_path}. Starting fresh training.")
+            return False
+
+        print(f"🔄 Resuming training from checkpoint: {ckpt_file.name}...")
+        checkpoint_data = torch.load(ckpt_file, map_location=self.device, weights_only=False)
+
+        self.model.load_state_dict(checkpoint_data["model_state_dict"])
+        self.optimizer.load_state_dict(checkpoint_data["optimizer_state_dict"])
+        self.start_epoch = checkpoint_data.get("epoch", 1)
+        self.start_step = checkpoint_data.get("step", 0)
+        self.best_val_loss = checkpoint_data.get("best_val_loss", checkpoint_data.get("val_loss", float("inf")))
+
+        print(f"✅ Checkpoint Loaded! Resuming at Epoch {self.start_epoch}, Step {self.start_step} (Best Val Loss: {self.best_val_loss:.4f})")
+        return True
 
     def train(
         self,
@@ -128,10 +150,14 @@ class PyGPTTrainer:
         epochs: int = 3,
         batch_size: int = 4,
         seq_len: int = 512,
-        eval_interval: int = 100,
+        eval_interval: int = 20,
+        resume: bool = False,
     ) -> Dict[str, str]:
-        """Runs the main pre-training loop over epochs and monitors validation loss."""
-        print(f"🚀 Starting PyGPT Pre-training...")
+        """Runs the main pre-training loop over epochs with optional resume support."""
+        if resume:
+            self.load_checkpoint()
+
+        print(f"🚀 PyGPT Pre-training Running...")
         print(f"   Epochs: {epochs} | Batch Size: {batch_size} | Context Seq Len: {seq_len}")
 
         train_loader, val_loader = create_dataloaders(
@@ -143,10 +169,10 @@ class PyGPTTrainer:
 
         total_steps = epochs * len(train_loader)
         scheduler = CosineAnnealingLR(self.optimizer, T_max=max(1, total_steps), eta_min=1e-5)
-        global_step = 0
+        global_step = self.start_step
         start_time = time.time()
 
-        for epoch in range(1, epochs + 1):
+        for epoch in range(self.start_epoch, epochs + 1):
             self.model.train()
             epoch_loss = 0.0
             step_in_epoch = 0
@@ -154,6 +180,11 @@ class PyGPTTrainer:
             for x, y in train_loader:
                 global_step += 1
                 step_in_epoch += 1
+
+                # Skip steps if resuming mid-epoch
+                if global_step <= self.start_step:
+                    continue
+
                 x, y = x.to(self.device), y.to(self.device)
 
                 self.optimizer.zero_grad()
@@ -161,13 +192,20 @@ class PyGPTTrainer:
                 loss = self.compute_loss(logits, y)
                 loss.backward()
 
-                # Gradient clipping to prevent exploding gradients
+                # Gradient clipping
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
 
                 self.optimizer.step()
                 scheduler.step()
 
                 epoch_loss += loss.item()
+
+                # Real-time step progress logging
+                if step_in_epoch % 10 == 0 or step_in_epoch == 1:
+                    print(
+                        f"  ⚡ Step [{step_in_epoch}/{len(train_loader)}] (Epoch {epoch}/{epochs}) | "
+                        f"Current Step Loss: {loss.item():.4f} | LR: {scheduler.get_last_lr()[0]:.6f}"
+                    )
 
                 # Periodic evaluation & logging
                 if global_step % eval_interval == 0 or step_in_epoch == len(train_loader):
@@ -181,9 +219,9 @@ class PyGPTTrainer:
                     self.save_checkpoint(epoch, global_step, val_loss, is_best=is_best)
 
                     current_lr = scheduler.get_last_lr()[0]
-                    avg_train_loss = epoch_loss / step_in_epoch
+                    avg_train_loss = epoch_loss / max(1, step_in_epoch)
                     print(
-                        f"Epoch [{epoch}/{epochs}] | Step [{step_in_epoch}/{len(train_loader)}] | "
+                        f"📊 Epoch [{epoch}/{epochs}] | Step [{step_in_epoch}/{len(train_loader)}] | "
                         f"Train Loss: {avg_train_loss:.4f} | Val Loss: {val_loss:.4f} | "
                         f"Val PPL: {val_ppl:.2f} | LR: {current_lr:.6f}"
                     )
