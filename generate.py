@@ -55,7 +55,7 @@ def interactive_mode(generator: PyGPTGenerator):
                 instruction=instruction,
                 input_code=input_code,
                 task_type=task_type,
-                max_new_tokens=150,
+                max_new_tokens=1000,
                 temperature=0.5,
             )
             print(res["generated_text"])
@@ -99,8 +99,8 @@ def main():
     parser.add_argument(
         "--max_tokens",
         type=int,
-        default=150,
-        help="Maximum tokens to generate (default: 150)",
+        default=1000,
+        help="Maximum tokens to generate (default: 1000)",
     )
     parser.add_argument(
         "--temperature",

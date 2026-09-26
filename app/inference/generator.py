@@ -159,7 +159,7 @@ class PyGPTGenerator:
         instruction: str,
         input_code: str = "",
         task_type: str = "generate",
-        max_new_tokens: int = 150,
+        max_new_tokens: int = 1000,
         temperature: float = 0.5,
     ) -> Dict[str, Union[str, int, float]]:
         """Executes instruction-following code generation, explanation, or bug fixing."""
