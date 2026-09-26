@@ -47,7 +47,7 @@ class InstructionRequest(BaseModel):
     instruction: str = Field(..., description="Task instruction (e.g. 'Write a function to...')")
     input_code: str = Field("", description="Optional input code snippet for explanation or bug fixing")
     task_type: str = Field("generate", description="Task type: 'generate', 'explain', or 'fix_bug'")
-    max_new_tokens: int = Field(15000, description="Maximum new tokens to generate")
+    max_new_tokens: int = Field(150, description="Maximum new tokens to generate")
     temperature: float = Field(0.5, description="Sampling temperature")
 
 
