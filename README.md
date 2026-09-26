@@ -1,12 +1,39 @@
-# pygpt-model
+# PyGPT Model
 
-Custom model that is specific for python coding, debugging etc.
+Custom open-weights decoder-only transformer model tailored specifically for Python code completion, automated debugging, type annotation, refactoring, and stack trace analysis.
 
-## Running the Server
+---
+
+## 📁 Repository Structure
+
+```
+pygpt-model/
+├── app/
+│   ├── schemas/               # Pydantic request/response schemas
+│   │   ├── model.py           # PyGPT model config & architecture schemas
+│   │   └── tokenizer.py       # Tokenizer request & response schemas
+│   ├── model/                 # Model specifications & configuration logic
+│   │   └── config.py          # PyGPT model configuration loader
+│   ├── tokenizer/             # Tokenizer implementation & vocabulary
+│   │   ├── tokenizer.py       # PyGPTTokenizer BPE & Python syntax lexer
+│   │   └── vocab.json         # Serialized vocabulary (32,000 tokens)
+│   └── routers/               # FastAPI route handlers
+│       ├── model.py           # /model/* endpoints
+│       └── tokenizer.py       # /tokenizer/* endpoints
+├── main.py                    # FastAPI server entry point & router registration
+├── MODEL_SPEC.md              # Detailed architecture & context specification
+├── TOKENIZER_SPEC.md          # Tokenizer vocabulary & features specification
+├── curl_commands.md           # Detailed cURL request guide for all endpoints
+└── pyproject.toml             # Project dependencies & configuration
+```
+
+---
+
+## 🚀 Running the Server
 
 ### Using `uv`
 
-1. **Install Dependencies** (already configured in `pyproject.toml`):
+1. **Install Dependencies**:
    ```bash
    uv sync
    ```
@@ -15,16 +42,16 @@ Custom model that is specific for python coding, debugging etc.
    ```bash
    uv run uvicorn main:app --reload
    ```
-   Or run `main.py` directly:
-   ```bash
-   uv run python main.py
-   ```
 
-## Endpoints
+---
+
+## 📌 Main Endpoints
 
 - `GET /`: Welcome message
-- `GET /health`: Health check endpoint returning `{"status": "healthy"}`
+- `GET /health`: Health check endpoint
+- `GET /model/info`: Returns model parameters, transformer architecture, context length & capabilities
+- `POST /tokenizer/encode`: Encodes Python code text into token IDs
+- `POST /tokenizer/decode`: Decodes token IDs back into source code text
 - `GET /docs`: Interactive Swagger API documentation
 
-For detailed cURL commands to test each endpoint, refer to [curl_commands.md](curl_commands.md).
-
+For comprehensive cURL commands, refer to [`curl_commands.md`](curl_commands.md).

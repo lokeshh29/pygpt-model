@@ -18,6 +18,9 @@ http://localhost:8000
 | :--- | :--- | :--- | :--- |
 | `/` | `GET` | Welcome message | `200 OK` |
 | `/health` | `GET` | Health check status | `200 OK` |
+| `/model/info` | `GET` | PyGPT model size, architecture, context & capabilities | `200 OK` |
+| `/tokenizer/encode` | `POST` | Tokenizes Python code into token strings and IDs | `200 OK` |
+| `/tokenizer/decode` | `POST` | Decodes token IDs back into Python code text | `200 OK` |
 | `/openapi.json` | `GET` | OpenAPI JSON schema specification | `200 OK` |
 | `/docs` | `GET` | Swagger UI documentation HTML | `200 OK` |
 | `/redoc` | `GET` | ReDoc documentation HTML | `200 OK` |
@@ -34,23 +37,6 @@ Retrieves the welcome message from the server.
   curl -X GET http://localhost:8000/
   ```
 
-* **With JSON Header & Pretty Print (using `jq`):**
-  ```bash
-  curl -s -X GET http://localhost:8000/ -H "Accept: application/json" | jq .
-  ```
-
-* **Verbose Mode (Inspect HTTP Headers & Status Code):**
-  ```bash
-  curl -i -X GET http://localhost:8000/
-  ```
-
-* **Expected Response (`200 OK`):**
-  ```json
-  {
-    "message": "Welcome to FastAPI server!"
-  }
-  ```
-
 ---
 
 ### 2. Health Check Endpoint (`GET /health`)
@@ -61,70 +47,78 @@ Checks the operational status of the server API.
   curl -X GET http://localhost:8000/health
   ```
 
-* **With Pretty Print:**
+---
+
+### 3. Model Information Endpoint (`GET /model/info`)
+Retrieves the full specification of the PyGPT model including model size, transformer architecture, context length, and target capabilities.
+
+* **Basic cURL Command:**
   ```bash
-  curl -s -X GET http://localhost:8000/health | jq .
+  curl -X GET http://localhost:8000/model/info
   ```
 
-* **Include Response Headers:**
+---
+
+### 4. Tokenizer Encode Endpoint (`POST /tokenizer/encode`)
+Encodes a Python code string into syntactic token strings and numerical token IDs using `PyGPTTokenizer`.
+
+* **Basic cURL Command:**
   ```bash
-  curl -i -X GET http://localhost:8000/health
+  curl -X POST http://localhost:8000/tokenizer/encode \
+    -H "Content-Type: application/json" \
+    -d '{"text": "def add(a: int, b: int) -> int:\n    return a + b", "add_special_tokens": true}'
+  ```
+
+* **Pretty Print with `jq`:**
+  ```bash
+  curl -s -X POST http://localhost:8000/tokenizer/encode \
+    -H "Content-Type: application/json" \
+    -d '{"text": "async def health(): return {\"status\": \"ok\"}", "add_special_tokens": false}' | jq .
   ```
 
 * **Expected Response (`200 OK`):**
   ```json
   {
-    "status": "healthy"
+    "text": "async def health(): return {\"status\": \"ok\"}",
+    "tokens": [
+      "async", " ", "def", " ", "health", "(", ")", ":", " ", "return", " ", "{", "\"status\"", ":", " ", "\"ok\"", "}"
+    ],
+    "token_ids": [15, 237, 18, 237, 85, 236, 238, 234, 237, 34, 237, 248, 88, 234, 237, 89, 249],
+    "token_count": 17
   }
   ```
 
 ---
 
-### 3. OpenAPI Schema (`GET /openapi.json`)
-Fetches the complete OpenAPI schema specification in JSON format.
+### 5. Tokenizer Decode Endpoint (`POST /tokenizer/decode`)
+Decodes a list of token IDs back into Python source code.
 
 * **Basic cURL Command:**
   ```bash
-  curl -X GET http://localhost:8000/openapi.json
-  ```
-
-* **Save OpenAPI Specification to a File:**
-  ```bash
-  curl -s -X GET http://localhost:8000/openapi.json -o openapi.json
+  curl -X POST http://localhost:8000/tokenizer/decode \
+    -H "Content-Type: application/json" \
+    -d '{"token_ids": [18, 237, 85, 236, 238, 234, 237, 34, 237, 248, 88, 234, 237, 89, 249], "skip_special_tokens": true}'
   ```
 
 ---
 
-### 4. Interactive API Documentation (`GET /docs` & `GET /redoc`)
-FastAPI automatically serves interactive API documentation.
-
-* **Swagger UI Docs (`GET /docs`):**
-  ```bash
-  curl -X GET http://localhost:8000/docs
-  ```
-
-* **ReDoc Documentation (`GET /redoc`):**
-  ```bash
-  curl -X GET http://localhost:8000/redoc
-  ```
+### 6. OpenAPI Schema & Interactive Docs
+* **OpenAPI Spec:** `curl -X GET http://localhost:8000/openapi.json`
+* **Swagger UI:** `curl -X GET http://localhost:8000/docs`
+* **ReDoc:** `curl -X GET http://localhost:8000/redoc`
 
 ---
 
 ## ⚡ Batch Testing Script
 
-You can run the following bash command to test all endpoints sequentially:
-
 ```bash
-for endpoint in "/" "/health" "/openapi.json"; do
+for endpoint in "/" "/health" "/model/info"; do
   echo -e "\n=== Testing GET http://localhost:8000${endpoint} ==="
   curl -s -w "\nHTTP Status: %{http_code}\n" "http://localhost:8000${endpoint}"
 done
-```
 
-PowerShell equivalent:
-```powershell
-@("/", "/health", "/openapi.json") | ForEach-Object {
-    Write-Host "`n=== Testing GET http://localhost:8000$_ ==="
-    Invoke-RestMethod -Uri "http://localhost:8000$_" | ConvertTo-Json
-}
+echo -e "\n=== Testing POST http://localhost:8000/tokenizer/encode ==="
+curl -s -X POST http://localhost:8000/tokenizer/encode \
+  -H "Content-Type: application/json" \
+  -d '{"text": "import torch", "add_special_tokens": false}'
 ```
