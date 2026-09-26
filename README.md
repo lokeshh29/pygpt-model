@@ -9,12 +9,16 @@ Custom open-weights decoder-only transformer model tailored specifically for Pyt
 ```
 pygpt-model/
 ├── app/
-│   ├── dataset/               # 📊 Dataset preparation & cleaning pipeline
-│   │   └── pipeline.py        # Zip extraction, AST syntax filter, SHA-256 deduplication
+│   ├── dataset/               # 📊 Dataset preparation & DataLoader modules
+│   │   ├── pipeline.py        # Zip extraction, AST syntax filter, SHA-256 deduplication
+│   │   └── loader.py          # PyTorch Token Dataset & DataLoaders for next-token prediction
+│   ├── training/              # 🏋️ Trainer engine & loss monitoring
+│   │   └── trainer.py         # Autoregressive Cross-Entropy, AdamW, Cosine LR & val loss monitoring
 │   ├── schemas/               # 📋 Pydantic request/response schemas
 │   │   ├── model.py           # PyGPT model config & architecture schemas
 │   │   └── tokenizer.py       # Tokenizer request & response schemas
-│   ├── model/                 # 🧠 Model specifications & configuration logic
+│   ├── model/                 # 🧠 PyTorch Transformer Architecture
+│   │   ├── transformer.py     # Embeddings, RoPE, GQA Attention, SwiGLU FFN, RMSNorm, LM Head
 │   │   └── config.py          # PyGPT model configuration loader
 │   ├── tokenizer/             # 🔤 Tokenizer implementation & vocabulary
 │   │   ├── tokenizer.py       # PyGPTTokenizer BPE & Python syntax lexer
@@ -24,27 +28,31 @@ pygpt-model/
 │       └── tokenizer.py       # /tokenizer/* endpoints
 ├── main.py                    # 🚀 FastAPI server entry point & router registration
 ├── prepare_dataset.py         # 📊 CLI script to prepare & tokenize local dataset .zip files
+├── train_pygpt.py             # 🏋️ CLI script to pretrain PyGPT model with val loss monitoring
+├── test_transformer.py        # 🧪 Verification test suite for PyTorch Transformer
 ├── MODEL_SPEC.md              # 📖 Detailed architecture & context specification
 ├── TOKENIZER_SPEC.md          # 📖 Tokenizer vocabulary & features specification
 ├── DATASET_PREPARATION.md     # 📖 Dataset preparation & cleaning pipeline guide
+├── PRETRAINING_GUIDE.md        # 📖 Model pretraining & validation loss guide
 ├── curl_commands.md           # 🛠️ cURL request guide for all endpoints
 └── pyproject.toml             # 📦 Project dependencies & configuration
 ```
 
 ---
 
-## 📊 Dataset Preparation Pipeline
+## 🏋️ Model Pre-training
 
-To prepare training data from a local `.zip` file of Python code datasets:
+To pretrain the PyGPT model using Next-Token Prediction on your prepared dataset shards:
 
 ```bash
-python prepare_dataset.py path/to/dataset.zip
+python3 train_pygpt.py
 ```
-For detailed dataset cleaning and deduplication specifications, refer to [`DATASET_PREPARATION.md`](DATASET_PREPARATION.md).
+
+For detailed pre-training equations and monitoring guidelines, refer to [`PRETRAINING_GUIDE.md`](PRETRAINING_GUIDE.md).
 
 ---
 
-## 🚀 Running the Server
+## 🚀 Running the API Server
 
 ### Using `uv`
 
@@ -68,5 +76,3 @@ For detailed dataset cleaning and deduplication specifications, refer to [`DATAS
 - `POST /tokenizer/encode`: Encodes Python code text into token IDs
 - `POST /tokenizer/decode`: Decodes token IDs back into source code text
 - `GET /docs`: Interactive Swagger API documentation
-
-For comprehensive cURL commands, refer to [`curl_commands.md`](curl_commands.md).
